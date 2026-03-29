@@ -1,5 +1,5 @@
 import { ViewPlugin, ViewUpdate, EditorView } from "@codemirror/view";
-import { completionStateField, setLoading, setCompletion, clearCompletion, acceptedCompletion } from "./completion-state";
+import { completionStateField, setLoading, setCompletion, clearCompletion, acceptPartial, acceptedCompletion } from "./completion-state";
 import type { CompletionProvider } from "../providers/base";
 import type { ContextBuilder } from "../services/context-builder";
 import type { ExclusionFilter } from "../services/exclusion-filter";
@@ -26,16 +26,25 @@ export function createTriggerPlugin(config: TriggerConfig) {
 			private backoffUntil = 0;
 
 			update(update: ViewUpdate): void {
-				// Check for acceptance events
+				// Check for acceptance events and detect partial accepts
+				let isAcceptance = false;
 				for (const tr of update.transactions) {
 					for (const effect of tr.effects) {
 						if (effect.is(acceptedCompletion)) {
 							config.onAccepted();
+							isAcceptance = true;
+						}
+						if (effect.is(acceptPartial)) {
+							isAcceptance = true;
 						}
 					}
 				}
 
 				if (!update.docChanged) return;
+
+				// Don't clear ghost text or start new debounce when the user
+				// is accepting a partial completion (word/line)
+				if (isAcceptance) return;
 
 				this.cancelPending();
 

@@ -1,5 +1,4 @@
-import { requestUrl } from "obsidian";
-import { CompletionProvider, CompletionRequest, CompletionResponse } from "./base";
+import { CompletionProvider, CompletionRequest, CompletionResponse, requestWithAbort } from "./base";
 
 export interface OpenAIProviderConfig {
 	apiKey: string;
@@ -12,15 +11,13 @@ export class OpenAIProvider implements CompletionProvider {
 	constructor(private readonly config: OpenAIProviderConfig) {}
 
 	async complete(request: CompletionRequest): Promise<CompletionResponse> {
-		if (request.signal.aborted) throw new DOMException("Aborted", "AbortError");
-
 		const url = `${this.config.baseUrl.replace(/\/+$/, "")}/chat/completions`;
 
 		const userMessage = request.suffix
 			? `Continue writing from where the cursor is marked with [CURSOR].\n\n${request.prefix}[CURSOR]${request.suffix}`
 			: `Continue writing from the end of this text:\n\n${request.prefix}`;
 
-		const response = await requestUrl({
+		const response = await requestWithAbort({
 			url,
 			method: "POST",
 			headers: {
@@ -37,9 +34,7 @@ export class OpenAIProvider implements CompletionProvider {
 				temperature: 0.3,
 				stream: false,
 			}),
-		});
-
-		if (request.signal.aborted) throw new DOMException("Aborted", "AbortError");
+		}, request.signal);
 
 		if (response.status >= 400) {
 			throw new Error(`API returned ${response.status}: ${JSON.stringify(response.json)}`);

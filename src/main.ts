@@ -110,7 +110,14 @@ export default class TabsidianPlugin extends Plugin {
 	}
 
 	async loadSettings(): Promise<void> {
-		this.settings = Object.assign({}, DEFAULT_SETTINGS, await this.loadData());
+		const loaded = await this.loadData();
+		this.settings = Object.assign({}, DEFAULT_SETTINGS, loaded);
+		// Deep merge nested objects so new fields get defaults
+		this.settings.usageStats = Object.assign(
+			{},
+			DEFAULT_SETTINGS.usageStats,
+			loaded?.usageStats,
+		);
 	}
 
 	async saveSettings(): Promise<void> {
