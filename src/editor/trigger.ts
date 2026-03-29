@@ -8,7 +8,6 @@ import type { UsageTracker } from "../services/usage-tracker";
 export interface TriggerConfig {
 	debounceMs: number;
 	maxLines: number;
-	systemPrompt: string;
 	getProvider: () => CompletionProvider | null;
 	contextBuilder: ContextBuilder;
 	getExclusionFilter: () => ExclusionFilter;
@@ -93,6 +92,13 @@ export function createTriggerPlugin(config: TriggerConfig) {
 						signal: this.abortController.signal,
 					});
 
+					// Guard against view being destroyed while awaiting
+					try {
+						void view.state;
+					} catch {
+						return;
+					}
+
 					const currentPos = view.state.selection.main.head;
 					if (currentPos !== cursorPos) return;
 
@@ -118,7 +124,11 @@ export function createTriggerPlugin(config: TriggerConfig) {
 					if ((e as Error).name === "AbortError") return;
 
 					console.error("Tabsidian: completion request failed", e);
-					view.dispatch({ effects: clearCompletion.of(undefined) });
+					try {
+						view.dispatch({ effects: clearCompletion.of(undefined) });
+					} catch {
+						// View may have been destroyed
+					}
 
 					this.consecutiveFailures++;
 					if (this.consecutiveFailures >= 3) {

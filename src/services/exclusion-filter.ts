@@ -18,7 +18,7 @@ export class ExclusionFilter {
 		const normalizedPath = filePath.replace(/\\/g, "/");
 
 		for (const folder of this.folders) {
-			if (normalizedPath.startsWith(folder + "/") || normalizedPath.startsWith(folder)) {
+			if (normalizedPath.startsWith(folder + "/") || normalizedPath === folder) {
 				return true;
 			}
 		}

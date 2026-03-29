@@ -12,6 +12,8 @@ export class OpenAIProvider implements CompletionProvider {
 	constructor(private readonly config: OpenAIProviderConfig) {}
 
 	async complete(request: CompletionRequest): Promise<CompletionResponse> {
+		if (request.signal.aborted) throw new DOMException("Aborted", "AbortError");
+
 		const url = `${this.config.baseUrl.replace(/\/+$/, "")}/chat/completions`;
 
 		const userMessage = request.suffix
@@ -36,6 +38,12 @@ export class OpenAIProvider implements CompletionProvider {
 				stream: false,
 			}),
 		});
+
+		if (request.signal.aborted) throw new DOMException("Aborted", "AbortError");
+
+		if (response.status >= 400) {
+			throw new Error(`API returned ${response.status}: ${JSON.stringify(response.json)}`);
+		}
 
 		const data = response.json;
 		const text = data.choices?.[0]?.message?.content ?? "";

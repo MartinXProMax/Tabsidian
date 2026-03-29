@@ -11,6 +11,8 @@ export class OllamaProvider implements CompletionProvider {
 	constructor(private readonly config: OllamaProviderConfig) {}
 
 	async complete(request: CompletionRequest): Promise<CompletionResponse> {
+		if (request.signal.aborted) throw new DOMException("Aborted", "AbortError");
+
 		const baseUrl = this.config.baseUrl || "http://localhost:11434";
 		const url = `${baseUrl.replace(/\/+$/, "")}/v1/chat/completions`;
 
@@ -35,6 +37,12 @@ export class OllamaProvider implements CompletionProvider {
 				stream: false,
 			}),
 		});
+
+		if (request.signal.aborted) throw new DOMException("Aborted", "AbortError");
+
+		if (response.status >= 400) {
+			throw new Error(`API returned ${response.status}: ${JSON.stringify(response.json)}`);
+		}
 
 		const data = response.json;
 		const text = data.choices?.[0]?.message?.content ?? "";

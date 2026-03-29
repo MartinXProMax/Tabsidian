@@ -29,10 +29,10 @@ export default class TabsidianPlugin extends Plugin {
 
 		this.addSettingTab(new TabsidianSettingTab(this.app, this));
 
+		const self = this;
 		const triggerConfig: TriggerConfig = {
-			debounceMs: this.settings.debounceMs,
-			maxLines: this.settings.maxLines,
-			systemPrompt: this.settings.systemPrompt,
+			get debounceMs() { return self.settings.debounceMs; },
+			get maxLines() { return self.settings.maxLines; },
 			getProvider: () => this.createProvider(),
 			contextBuilder: this.contextBuilder,
 			getExclusionFilter: () =>

@@ -13,6 +13,8 @@ export class AnthropicProvider implements CompletionProvider {
 	constructor(private readonly config: AnthropicProviderConfig) {}
 
 	async complete(request: CompletionRequest): Promise<CompletionResponse> {
+		if (request.signal.aborted) throw new DOMException("Aborted", "AbortError");
+
 		const userMessage = request.suffix
 			? `Continue writing from where the cursor is marked with [CURSOR].\n\n${request.prefix}[CURSOR]${request.suffix}`
 			: `Continue writing from the end of this text:\n\n${request.prefix}`;
@@ -34,6 +36,12 @@ export class AnthropicProvider implements CompletionProvider {
 				],
 			}),
 		});
+
+		if (request.signal.aborted) throw new DOMException("Aborted", "AbortError");
+
+		if (response.status >= 400) {
+			throw new Error(`API returned ${response.status}: ${JSON.stringify(response.json)}`);
+		}
 
 		const data = response.json;
 		const text = data.content?.[0]?.text ?? "";

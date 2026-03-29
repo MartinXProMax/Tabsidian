@@ -72,15 +72,16 @@ export class TabsidianSettingTab extends PluginSettingTab {
 		new Setting(containerEl)
 			.setName("API Key")
 			.setDesc("Your API key (stored locally, never uploaded)")
-			.addText((text) =>
+			.addText((text) => {
+				text.inputEl.type = "password";
 				text
 					.setPlaceholder("sk-...")
 					.setValue(this.plugin.settings.apiKey)
 					.onChange(async (value) => {
 						this.plugin.settings.apiKey = value;
 						await this.plugin.saveSettings();
-					})
-			);
+					});
+			});
 
 		new Setting(containerEl)
 			.setName("Model")
