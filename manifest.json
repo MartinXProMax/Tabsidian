@@ -1,0 +1,9 @@
+{
+	"id": "tabsidian",
+	"name": "Tabsidian",
+	"version": "0.1.0",
+	"minAppVersion": "1.0.0",
+	"description": "AI-powered inline text completion with ghost text, similar to Cursor Tab.",
+	"author": "Tabsidian",
+	"isDesktopOnly": false
+}
