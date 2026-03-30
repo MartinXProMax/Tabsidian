@@ -1,12 +1,14 @@
 import { Plugin, Notice, MarkdownView } from "obsidian";
+import type { Extension } from "@codemirror/state";
 import {
 	TabsidianSettings,
 	DEFAULT_SETTINGS,
 	TabsidianSettingTab,
+	normalizeAcceptSuggestionKey,
 } from "./settings";
 import { completionStateField } from "./editor/completion-state";
 import { ghostTextDecorationField } from "./editor/ghost-text";
-import { completionKeymap } from "./editor/keymap";
+import { createCompletionKeymap } from "./editor/keymap";
 import { createTriggerPlugin, TriggerConfig } from "./editor/trigger";
 import { OpenAIProvider, OpenAIProviderConfig } from "./providers/openai";
 import { AnthropicProvider, AnthropicProviderConfig } from "./providers/anthropic";
@@ -19,6 +21,8 @@ import type { CompletionProvider } from "./providers/base";
 export default class TabsidianPlugin extends Plugin {
 	settings: TabsidianSettings = DEFAULT_SETTINGS;
 	private contextBuilder = new ContextBuilder();
+	private editorExtensions: Extension[] = [];
+	private registeredAcceptSuggestionKey = DEFAULT_SETTINGS.acceptSuggestionKey;
 
 	async onload(): Promise<void> {
 		await this.loadSettings();
@@ -55,12 +59,14 @@ export default class TabsidianPlugin extends Plugin {
 			},
 		};
 
-		this.registerEditorExtension([
+		this.editorExtensions = [
 			completionStateField,
 			ghostTextDecorationField,
-			completionKeymap,
+			createCompletionKeymap(this.settings.acceptSuggestionKey),
 			createTriggerPlugin(triggerConfig),
-		]);
+		];
+		this.registeredAcceptSuggestionKey = this.settings.acceptSuggestionKey;
+		this.registerEditorExtension(this.editorExtensions);
 	}
 
 	private createProvider(): CompletionProvider | null {
@@ -118,9 +124,26 @@ export default class TabsidianPlugin extends Plugin {
 			DEFAULT_SETTINGS.usageStats,
 			loaded?.usageStats,
 		);
+		this.settings.acceptSuggestionKey = normalizeAcceptSuggestionKey(
+			loaded?.acceptSuggestionKey ?? DEFAULT_SETTINGS.acceptSuggestionKey,
+		);
 	}
 
 	async saveSettings(): Promise<void> {
 		await this.saveData(this.settings);
+		this.refreshEditorExtensions();
+	}
+
+	private refreshEditorExtensions(): void {
+		const acceptSuggestionKey = normalizeAcceptSuggestionKey(this.settings.acceptSuggestionKey);
+		this.settings.acceptSuggestionKey = acceptSuggestionKey;
+
+		if (this.editorExtensions.length === 0 || this.registeredAcceptSuggestionKey === acceptSuggestionKey) {
+			return;
+		}
+
+		this.editorExtensions[2] = createCompletionKeymap(acceptSuggestionKey);
+		this.registeredAcceptSuggestionKey = acceptSuggestionKey;
+		this.app.workspace.updateOptions();
 	}
 }

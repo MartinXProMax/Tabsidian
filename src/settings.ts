@@ -9,6 +9,7 @@ export interface TabsidianSettings {
 	apiBaseUrl: string;
 	debounceMs: number;
 	maxLines: number;
+	acceptSuggestionKey: string;
 	systemPrompt: string;
 	excludedFolders: string;
 	excludedTags: string;
@@ -28,6 +29,7 @@ export const DEFAULT_SETTINGS: TabsidianSettings = {
 	apiBaseUrl: "",
 	debounceMs: 500,
 	maxLines: 5,
+	acceptSuggestionKey: "Tab",
 	systemPrompt: "You are a writing assistant. Continue the text naturally based on the context. Output only the continuation, no explanations.",
 	excludedFolders: "",
 	excludedTags: "",
@@ -37,6 +39,57 @@ export const DEFAULT_SETTINGS: TabsidianSettings = {
 		totalTokens: 0,
 	},
 };
+
+export function normalizeAcceptSuggestionKey(value: string): string {
+	const normalized = value.trim();
+	return normalized.length > 0 ? normalized : DEFAULT_SETTINGS.acceptSuggestionKey;
+}
+
+export function keyEventToKeybinding(event: KeyboardEvent): string | null {
+	const baseKey = normalizeKeyName(event.key);
+	if (!baseKey) return null;
+
+	const modifiers: string[] = [];
+	if (event.ctrlKey) modifiers.push("Ctrl");
+	if (event.altKey) modifiers.push("Alt");
+	if (event.shiftKey && !isImplicitShift(baseKey)) modifiers.push("Shift");
+	if (event.metaKey) modifiers.push("Meta");
+
+	return [...modifiers, baseKey].join("-");
+}
+
+function normalizeKeyName(key: string): string | null {
+	switch (key) {
+		case " ":
+			return "Space";
+		case "Esc":
+			return "Escape";
+		case "OS":
+			return "Meta";
+		case "Control":
+		case "Shift":
+		case "Alt":
+		case "Meta":
+			return null;
+		default:
+			break;
+	}
+
+	if (key.startsWith("Arrow")) {
+		return key;
+	}
+
+	if (key.length === 1) {
+		if (/[a-z]/i.test(key)) return key.toUpperCase();
+		if (/\d/.test(key)) return key;
+	}
+
+	return key.length > 0 ? key : null;
+}
+
+function isImplicitShift(baseKey: string): boolean {
+	return baseKey.length === 1 && /[A-Z]/.test(baseKey);
+}
 
 export class TabsidianSettingTab extends PluginSettingTab {
 	plugin: Plugin & { settings: TabsidianSettings; saveSettings(): Promise<void> };
@@ -137,6 +190,28 @@ export class TabsidianSettingTab extends PluginSettingTab {
 						this.plugin.settings.maxLines = value;
 						await this.plugin.saveSettings();
 					})
+			);
+
+		new Setting(containerEl)
+			.setName("Accept Suggestion Key")
+			.setDesc("Focus this field and press the key combination you want to use for accepting the full suggestion")
+			.addText((text) =>
+				{
+					text
+						.setPlaceholder("Press a shortcut")
+						.setValue(this.plugin.settings.acceptSuggestionKey);
+					text.inputEl.readOnly = true;
+					text.inputEl.addEventListener("keydown", async (event) => {
+						const binding = keyEventToKeybinding(event);
+						if (!binding) return;
+
+						event.preventDefault();
+						event.stopPropagation();
+						this.plugin.settings.acceptSuggestionKey = binding;
+						text.setValue(binding);
+						await this.plugin.saveSettings();
+					});
+				}
 			);
 
 		new Setting(containerEl)

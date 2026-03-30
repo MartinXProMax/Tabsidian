@@ -1,6 +1,5 @@
-import { keymap } from "@codemirror/view";
-import { EditorView } from "@codemirror/view";
-import { Prec } from "@codemirror/state";
+import { keymap, EditorView } from "@codemirror/view";
+import { Prec, type Extension } from "@codemirror/state";
 import { completionStateField, clearCompletion, acceptPartial, acceptedCompletion } from "./completion-state";
 
 // CJK Unicode ranges: CJK Unified Ideographs, extensions, punctuation, kana, hangul
@@ -92,11 +91,19 @@ function dismiss(view: EditorView): boolean {
 	return true;
 }
 
-// Use lowest precedence so Obsidian's native TAB (indent, list) works
-// when no ghost text is showing (handlers return false to pass through)
-export const completionKeymap = Prec.lowest(keymap.of([
-	{ key: "Tab", run: acceptFull },
-	{ key: "Ctrl-ArrowRight", run: acceptWord },
-	{ key: "Ctrl-ArrowDown", run: acceptLine },
-	{ key: "Escape", run: dismiss },
-]));
+/**
+ * Create the completion keymap.
+ *
+ * Uses Prec.highest so our handler runs BEFORE Obsidian's built-in
+ * indentWithTab. When no ghost text is visible, handlers return false
+ * and the event propagates to Obsidian's native TAB (indent/list).
+ * When ghost text IS visible, handlers return true to intercept.
+ */
+export function createCompletionKeymap(acceptSuggestionKey: string): Extension {
+	return Prec.highest(keymap.of([
+		{ key: acceptSuggestionKey, run: acceptFull },
+		{ key: "Ctrl-ArrowRight", run: acceptWord },
+		{ key: "Ctrl-ArrowDown", run: acceptLine },
+		{ key: "Escape", run: dismiss },
+	]));
+}
