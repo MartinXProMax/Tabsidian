@@ -2,3 +2,10 @@ node_modules/
 main.js
 *.js.map
 .superpowers/
+.claude/
+dist/
+coverage/
+*.log
+Thumbs.db
+.DS_Store
+desktop.ini

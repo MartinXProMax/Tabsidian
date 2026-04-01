@@ -1,9 +1,32 @@
-import { CompletionProvider, CompletionRequest, CompletionResponse, requestWithAbort } from "./base";
+import { CompletionProvider, CompletionRequest, CompletionResponse, requestWithAbort, debugLog } from "./base";
+import { redactDebugText } from "../services/debug-redaction";
 
 export interface OllamaProviderConfig {
 	model: string;
 	baseUrl: string;
 	systemPrompt: string;
+	enableThinking: boolean;
+	debugMode?: boolean;
+	debugRedactSensitive?: boolean;
+	debugMaxBodyChars?: number;
+}
+
+/** Strip `<think>...</think>` blocks from models that inline reasoning into content */
+function stripThinkingTags(text: string): string {
+	return text.replace(/<think>[\s\S]*?<\/think>\s*/g, "").trim();
+}
+
+function isQwenThinkingModel(model: string): boolean {
+	return /qwen/i.test(model);
+}
+
+function buildUserMessage(model: string, enableThinking: boolean, userMessage: string): string {
+	if (!isQwenThinkingModel(model)) {
+		return userMessage;
+	}
+
+	const directive = enableThinking ? "/think" : "/no_think";
+	return `${directive}\n${userMessage}`;
 }
 
 export class OllamaProvider implements CompletionProvider {
@@ -11,11 +34,23 @@ export class OllamaProvider implements CompletionProvider {
 
 	async complete(request: CompletionRequest): Promise<CompletionResponse> {
 		const baseUrl = this.config.baseUrl || "http://localhost:11434";
-		const url = `${baseUrl.replace(/\/+$/, "")}/v1/chat/completions`;
+		const url = `${baseUrl.replace(/\/+$/, "")}/api/chat`;
 
-		const userMessage = request.suffix
-			? `Continue writing from where the cursor is marked with [CURSOR].\n\n${request.prefix}[CURSOR]${request.suffix}`
-			: `Continue writing from the end of this text:\n\n${request.prefix}`;
+		const userMessage = buildUserMessage(this.config.model, this.config.enableThinking, request.prompt);
+
+		const bodyStr = JSON.stringify({
+				model: this.config.model,
+				messages: [
+					{ role: "system", content: this.config.systemPrompt },
+					{ role: "user", content: userMessage },
+				],
+				stream: false,
+				think: this.config.enableThinking,
+				options: {
+					temperature: 0.3,
+					num_predict: request.maxTokens,
+				},
+			});
 
 		const response = await requestWithAbort({
 			url,
@@ -23,25 +58,41 @@ export class OllamaProvider implements CompletionProvider {
 			headers: {
 				"Content-Type": "application/json",
 			},
-			body: JSON.stringify({
-				model: this.config.model,
-				messages: [
-					{ role: "system", content: this.config.systemPrompt },
-					{ role: "user", content: userMessage },
-				],
-				max_tokens: request.maxTokens,
-				temperature: 0.3,
-				stream: false,
-			}),
+			body: bodyStr,
 		}, request.signal);
+
+		if (this.config.debugMode) {
+			const sanitize = (text: string) => this.config.debugRedactSensitive === false
+				? text
+				: redactDebugText(text, { maxChars: this.config.debugMaxBodyChars });
+			debugLog.push({
+				timestamp: Date.now(),
+				provider: "ollama",
+				model: this.config.model,
+				requestUrl: url,
+				requestBody: sanitize(bodyStr),
+				responseStatus: response.status,
+				responseBody: sanitize(response.text),
+				transport: response.transport,
+				durationMs: response.durationMs,
+				usedFallback: response.usedFallback,
+				fallbackReason: response.fallbackReason,
+			});
+		}
 
 		if (response.status >= 400) {
 			throw new Error(`API returned ${response.status}: ${JSON.stringify(response.json)}`);
 		}
 
 		const data = response.json;
-		const text = data.choices?.[0]?.message?.content ?? "";
-		const tokensUsed = data.usage?.total_tokens ?? 0;
+		let text: string = data.message?.content ?? "";
+
+		// Some Ollama models still inline reasoning into content even when `think` is supported.
+		if (this.config.enableThinking || isQwenThinkingModel(this.config.model)) {
+			text = stripThinkingTags(text);
+		}
+
+		const tokensUsed = (data.prompt_eval_count ?? 0) + (data.eval_count ?? 0);
 
 		return { text, tokensUsed };
 	}

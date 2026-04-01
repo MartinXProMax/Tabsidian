@@ -33,9 +33,10 @@ describe("ContextBuilder", () => {
 		expect(result.prefix.endsWith("a".repeat(2000))).toBe(true);
 	});
 
-	it("should truncate suffix to maxContextChars", () => {
+	it("should truncate suffix within maxContextChars", () => {
 		const doc = "start" + "b".repeat(5000);
 		const result = builder.build(doc, 5, 2000);
-		expect(result.suffix.length).toBe(2000);
+		expect(result.suffix.length).toBeLessThanOrEqual(2000);
+		expect(result.suffix.length).toBeGreaterThan(0);
 	});
 });

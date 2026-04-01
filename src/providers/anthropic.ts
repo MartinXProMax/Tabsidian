@@ -1,9 +1,15 @@
-import { CompletionProvider, CompletionRequest, CompletionResponse, requestWithAbort } from "./base";
+import { CompletionProvider, CompletionRequest, CompletionResponse, requestWithAbort, debugLog } from "./base";
+import { redactDebugText } from "../services/debug-redaction";
 
 export interface AnthropicProviderConfig {
 	apiKey: string;
 	model: string;
 	systemPrompt: string;
+	enableThinking: boolean;
+	thinkingBudget: number;
+	debugMode?: boolean;
+	debugRedactSensitive?: boolean;
+	debugMaxBodyChars?: number;
 }
 
 export class AnthropicProvider implements CompletionProvider {
@@ -12,10 +18,29 @@ export class AnthropicProvider implements CompletionProvider {
 	constructor(private readonly config: AnthropicProviderConfig) {}
 
 	async complete(request: CompletionRequest): Promise<CompletionResponse> {
-		const userMessage = request.suffix
-			? `Continue writing from where the cursor is marked with [CURSOR].\n\n${request.prefix}[CURSOR]${request.suffix}`
-			: `Continue writing from the end of this text:\n\n${request.prefix}`;
+		const thinking = this.config.enableThinking;
 
+		const body: Record<string, unknown> = {
+			model: this.config.model,
+			system: this.config.systemPrompt,
+			messages: [
+				{ role: "user", content: request.prompt },
+			],
+		};
+
+		if (thinking) {
+			// Extended thinking: budget_tokens for reasoning, max_tokens covers total
+			body.max_tokens = this.config.thinkingBudget + request.maxTokens;
+			body.thinking = {
+				type: "enabled",
+				budget_tokens: this.config.thinkingBudget,
+			};
+			body.temperature = 1; // Required when thinking is enabled
+		} else {
+			body.max_tokens = request.maxTokens;
+		}
+
+		const bodyStr = JSON.stringify(body);
 		const response = await requestWithAbort({
 			url: `${this.baseUrl}/messages`,
 			method: "POST",
@@ -24,22 +49,46 @@ export class AnthropicProvider implements CompletionProvider {
 				"anthropic-version": "2023-06-01",
 				"Content-Type": "application/json",
 			},
-			body: JSON.stringify({
-				model: this.config.model,
-				max_tokens: request.maxTokens,
-				system: this.config.systemPrompt,
-				messages: [
-					{ role: "user", content: userMessage },
-				],
-			}),
+			body: bodyStr,
 		}, request.signal);
+
+		if (this.config.debugMode) {
+			const sanitize = (text: string) => this.config.debugRedactSensitive === false
+				? text
+				: redactDebugText(text, { maxChars: this.config.debugMaxBodyChars });
+			debugLog.push({
+				timestamp: Date.now(),
+				provider: "anthropic",
+				model: this.config.model,
+				requestUrl: `${this.baseUrl}/messages`,
+				requestBody: sanitize(bodyStr),
+				responseStatus: response.status,
+				responseBody: sanitize(response.text),
+				transport: response.transport,
+				durationMs: response.durationMs,
+				usedFallback: response.usedFallback,
+				fallbackReason: response.fallbackReason,
+			});
+		}
 
 		if (response.status >= 400) {
 			throw new Error(`API returned ${response.status}: ${JSON.stringify(response.json)}`);
 		}
 
 		const data = response.json;
-		const text = data.content?.[0]?.text ?? "";
+
+		// When thinking is enabled, response contains both "thinking" and "text" blocks.
+		// Extract only the "text" blocks.
+		let text: string;
+		if (thinking && Array.isArray(data.content)) {
+			text = data.content
+				.filter((block: { type: string }) => block.type === "text")
+				.map((block: { text: string }) => block.text)
+				.join("");
+		} else {
+			text = data.content?.[0]?.text ?? "";
+		}
+
 		const tokensUsed = (data.usage?.input_tokens ?? 0) + (data.usage?.output_tokens ?? 0);
 
 		return { text, tokensUsed };

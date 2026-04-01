@@ -5,7 +5,11 @@ import { completionStateField, clearCompletion, acceptPartial, acceptedCompletio
 // CJK Unicode ranges: CJK Unified Ideographs, extensions, punctuation, kana, hangul
 const CJK_CHAR = /[\u2E80-\u2FFF\u3000-\u303F\u3040-\u309F\u30A0-\u30FF\u3400-\u4DBF\u4E00-\u9FFF\uF900-\uFAFF\uFE30-\uFE4F\uFF00-\uFFEF\u{20000}-\u{2A6DF}\u{2A700}-\u{2B73F}\u{2B740}-\u{2B81F}]/u;
 
-function acceptFull(view: EditorView): boolean {
+/**
+ * Accept the full visible ghost-text completion.
+ * Exported so the capture-phase listener in main.ts can call it.
+ */
+export function acceptVisibleCompletion(view: EditorView): boolean {
 	const state = view.state.field(completionStateField);
 	if (state.status !== "showing" || !state.completion) return false;
 
@@ -38,7 +42,7 @@ function acceptWord(view: EditorView): boolean {
 	const remaining = text.slice(chunkText.length);
 
 	if (remaining.length === 0) {
-		return acceptFull(view);
+		return acceptVisibleCompletion(view);
 	}
 
 	view.dispatch({
@@ -60,14 +64,14 @@ function acceptLine(view: EditorView): boolean {
 	const newlineIdx = text.indexOf("\n");
 
 	if (newlineIdx === -1) {
-		return acceptFull(view);
+		return acceptVisibleCompletion(view);
 	}
 
 	const lineText = text.slice(0, newlineIdx + 1);
 	const remaining = text.slice(newlineIdx + 1);
 
 	if (remaining.length === 0) {
-		return acceptFull(view);
+		return acceptVisibleCompletion(view);
 	}
 
 	view.dispatch({
@@ -92,16 +96,48 @@ function dismiss(view: EditorView): boolean {
 }
 
 /**
+ * Check whether a CM6-style key string (e.g. "Tab", "Ctrl-Shift-Enter")
+ * matches a DOM KeyboardEvent. Exported for use in main.ts capture listener.
+ */
+export function matchesKeybindingEvent(keyString: string, event: KeyboardEvent): boolean {
+	const parts = keyString.split("-");
+	const baseKey = normalizeEventKey(parts[parts.length - 1] ?? "");
+	const wantCtrl = parts.includes("Ctrl");
+	const wantAlt = parts.includes("Alt");
+	const wantShift = parts.includes("Shift");
+	const wantMeta = parts.includes("Meta");
+
+	if (event.ctrlKey !== wantCtrl) return false;
+	if (event.altKey !== wantAlt) return false;
+	if (event.shiftKey !== wantShift) return false;
+	if (event.metaKey !== wantMeta) return false;
+
+	return normalizeEventKey(event.key) === baseKey;
+}
+
+function normalizeEventKey(key: string): string {
+	switch (key) {
+		case " ":
+			return "Space";
+		case "Esc":
+			return "Escape";
+		default:
+			return key.length === 1 && /[a-z]/i.test(key) ? key.toUpperCase() : key;
+	}
+}
+
+/**
  * Create the completion keymap.
  *
- * Uses Prec.highest so our handler runs BEFORE Obsidian's built-in
- * indentWithTab. When no ghost text is visible, handlers return false
- * and the event propagates to Obsidian's native TAB (indent/list).
- * When ghost text IS visible, handlers return true to intercept.
+ * The accept-suggestion key (often Tab) is handled by a capture-phase
+ * document listener registered in main.ts — that fires before CM6 or
+ * Obsidian can consume the event.
+ *
+ * This extension only registers the remaining CM6-level bindings:
+ * Ctrl-ArrowRight (accept word), Ctrl-ArrowDown (accept line), Escape (dismiss).
  */
-export function createCompletionKeymap(acceptSuggestionKey: string): Extension {
+export function createCompletionKeymap(): Extension {
 	return Prec.highest(keymap.of([
-		{ key: acceptSuggestionKey, run: acceptFull },
 		{ key: "Ctrl-ArrowRight", run: acceptWord },
 		{ key: "Ctrl-ArrowDown", run: acceptLine },
 		{ key: "Escape", run: dismiss },

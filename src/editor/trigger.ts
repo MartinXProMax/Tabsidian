@@ -4,6 +4,7 @@ import type { CompletionProvider } from "../providers/base";
 import type { ContextBuilder } from "../services/context-builder";
 import type { ExclusionFilter } from "../services/exclusion-filter";
 import type { UsageTracker } from "../services/usage-tracker";
+import { postProcessCompletion } from "../services/candidate-post-processor";
 
 export interface TriggerConfig {
 	debounceMs: number;
@@ -96,6 +97,7 @@ export function createTriggerPlugin(config: TriggerConfig) {
 					const response = await provider.complete({
 						prefix: context.prefix,
 						suffix: context.suffix,
+						prompt: context.prompt,
 						language: "markdown",
 						maxTokens: config.maxLines * 40,
 						signal: this.abortController.signal,
@@ -111,8 +113,12 @@ export function createTriggerPlugin(config: TriggerConfig) {
 					const currentPos = view.state.selection.main.head;
 					if (currentPos !== cursorPos) return;
 
-					const lines = response.text.split("\n");
-					const trimmedText = lines.slice(0, config.maxLines).join("\n");
+					const trimmedText = postProcessCompletion({
+						prefix: context.prefix,
+						suffix: context.suffix,
+						rawText: response.text,
+						maxLines: config.maxLines,
+					});
 
 					if (trimmedText.trim().length === 0) {
 						view.dispatch({ effects: clearCompletion.of(undefined) });

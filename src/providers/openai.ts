@@ -1,10 +1,15 @@
-import { CompletionProvider, CompletionRequest, CompletionResponse, requestWithAbort } from "./base";
+import { CompletionProvider, CompletionRequest, CompletionResponse, requestWithAbort, debugLog } from "./base";
+import { redactDebugText } from "../services/debug-redaction";
 
 export interface OpenAIProviderConfig {
 	apiKey: string;
 	model: string;
 	baseUrl: string;
 	systemPrompt: string;
+	enableThinking: boolean;
+	debugMode?: boolean;
+	debugRedactSensitive?: boolean;
+	debugMaxBodyChars?: number;
 }
 
 export class OpenAIProvider implements CompletionProvider {
@@ -13,10 +18,30 @@ export class OpenAIProvider implements CompletionProvider {
 	async complete(request: CompletionRequest): Promise<CompletionResponse> {
 		const url = `${this.config.baseUrl.replace(/\/+$/, "")}/chat/completions`;
 
-		const userMessage = request.suffix
-			? `Continue writing from where the cursor is marked with [CURSOR].\n\n${request.prefix}[CURSOR]${request.suffix}`
-			: `Continue writing from the end of this text:\n\n${request.prefix}`;
+		const thinking = this.config.enableThinking;
 
+		// Thinking models (o1/o3/o4-mini) use "developer" role instead of "system"
+		const systemRole = thinking ? "developer" : "system";
+		const messages = [
+			{ role: systemRole, content: this.config.systemPrompt },
+			{ role: "user", content: request.prompt },
+		];
+
+		const body: Record<string, unknown> = {
+			model: this.config.model,
+			messages,
+			stream: false,
+		};
+
+		if (thinking) {
+			// Thinking models: use max_completion_tokens, no temperature
+			body.max_completion_tokens = request.maxTokens;
+		} else {
+			body.max_tokens = request.maxTokens;
+			body.temperature = 0.3;
+		}
+
+		const bodyStr = JSON.stringify(body);
 		const response = await requestWithAbort({
 			url,
 			method: "POST",
@@ -24,17 +49,27 @@ export class OpenAIProvider implements CompletionProvider {
 				"Authorization": `Bearer ${this.config.apiKey}`,
 				"Content-Type": "application/json",
 			},
-			body: JSON.stringify({
-				model: this.config.model,
-				messages: [
-					{ role: "system", content: this.config.systemPrompt },
-					{ role: "user", content: userMessage },
-				],
-				max_tokens: request.maxTokens,
-				temperature: 0.3,
-				stream: false,
-			}),
+			body: bodyStr,
 		}, request.signal);
+
+		if (this.config.debugMode) {
+			const sanitize = (text: string) => this.config.debugRedactSensitive === false
+				? text
+				: redactDebugText(text, { maxChars: this.config.debugMaxBodyChars });
+			debugLog.push({
+				timestamp: Date.now(),
+				provider: "openai-compatible",
+				model: this.config.model,
+				requestUrl: url,
+				requestBody: sanitize(bodyStr),
+				responseStatus: response.status,
+				responseBody: sanitize(response.text),
+				transport: response.transport,
+				durationMs: response.durationMs,
+				usedFallback: response.usedFallback,
+				fallbackReason: response.fallbackReason,
+			});
+		}
 
 		if (response.status >= 400) {
 			throw new Error(`API returned ${response.status}: ${JSON.stringify(response.json)}`);
