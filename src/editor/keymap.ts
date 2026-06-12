@@ -4,6 +4,7 @@ import { completionStateField, clearCompletion, acceptPartial, acceptedCompletio
 
 // CJK Unicode ranges: CJK Unified Ideographs, extensions, punctuation, kana, hangul
 const CJK_CHAR = /[\u2E80-\u2FFF\u3000-\u303F\u3040-\u309F\u30A0-\u30FF\u3400-\u4DBF\u4E00-\u9FFF\uF900-\uFAFF\uFE30-\uFE4F\uFF00-\uFFEF\u{20000}-\u{2A6DF}\u{2A700}-\u{2B73F}\u{2B740}-\u{2B81F}]/u;
+const WORD_CHUNK = /^[\p{L}\p{N}_]+[^\S\n]?/u;
 
 /**
  * Accept the full visible ghost-text completion.
@@ -28,16 +29,8 @@ function acceptWord(view: EditorView): boolean {
 
 	const { text, from } = state.completion;
 
-	let chunkText: string;
-	if (CJK_CHAR.test(text.charAt(0))) {
-		// CJK: accept one character at a time
-		chunkText = text.charAt(0);
-	} else {
-		// Latin/etc: accept one word + trailing whitespace
-		const wordMatch = text.match(/^(\S+\s?)/);
-		if (!wordMatch) return false;
-		chunkText = wordMatch[1] ?? "";
-	}
+	const chunkText = getAcceptWordChunk(text);
+	if (!chunkText) return false;
 
 	const remaining = text.slice(chunkText.length);
 
@@ -54,6 +47,19 @@ function acceptWord(view: EditorView): boolean {
 		}),
 	});
 	return true;
+}
+
+export function getAcceptWordChunk(text: string): string | null {
+	if (text.length === 0) return null;
+
+	const firstCodePoint = text.codePointAt(0)!;
+	const firstChar = String.fromCodePoint(firstCodePoint);
+	if (CJK_CHAR.test(firstChar)) return firstChar;
+
+	const wordMatch = text.match(WORD_CHUNK);
+	if (wordMatch?.[0]) return wordMatch[0];
+
+	return firstChar;
 }
 
 function acceptLine(view: EditorView): boolean {

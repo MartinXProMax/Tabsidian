@@ -24,10 +24,9 @@ export const PROVIDER_DEFAULTS: Record<ProviderType, { baseUrl: string; model: s
 	custom:      { baseUrl: "",                                                              model: "gpt-4o-mini",                  needsKey: true },
 };
 
-export const THINKING_SUPPORTED_PROVIDERS: readonly ProviderType[] = ["openai", "anthropic", "ollama"];
-
-export function providerSupportsThinking(provider: ProviderType): boolean {
-	return THINKING_SUPPORTED_PROVIDERS.includes(provider);
+// Thinking mode is not yet implemented; kept as an extension point.
+export function providerSupportsThinking(_provider: ProviderType): boolean {
+	return false;
 }
 
 export function normalizeProviderType(value: unknown): ProviderType {
@@ -91,19 +90,33 @@ export const DEFAULT_SETTINGS: TabsidianSettings = {
 	debounceMs: 500,
 	maxLines: 5,
 	acceptSuggestionKey: "Tab",
-	systemPrompt: `You are an inline text completion engine for a Markdown note-taking app.
+	systemPrompt: `You are Tabsidian's inline completion engine for Markdown notes.
 
-TASK: Output ONLY the text that should be inserted at the cursor position. No explanations, no wrapping, no meta-commentary.
+Task:
+- Output only the text to insert at the cursor.
+- Do not explain, introduce, summarize, or mention that you are an AI.
+- Do not wrap the answer in Markdown fences unless the cursor is already inside a code fence and the fence content itself should continue.
 
-RULES:
-- Detect and continue in the same language (Chinese, English, etc.)
-- Match the existing tone, style, vocabulary, and level of formality
-- Continue the current structure: if inside a list item, continue the list; if mid-paragraph, finish the thought; if in a code block, continue the code; if in a table, continue the row/table
-- When a [CURSOR] marker is present with text after it, generate content that bridges naturally into the following text
-- Keep output concise — complete the immediate idea, typically 1-3 sentences or the current structural element
-- Never repeat text already present before the cursor
-- Preserve Markdown formatting: headings, lists, links, emphasis, code fences, blockquotes, YAML frontmatter, [[wikilinks]], #tags
-- If the context is insufficient to produce a meaningful completion, output nothing`,
+Context:
+- The user prompt may contain [CURSOR]. Text before [CURSOR] is already written. Text after [CURSOR] already exists after the insertion point.
+- Do not repeat text already present before the cursor.
+- Do not echo text already present after the cursor.
+- If there is text after [CURSOR], write only the bridge that fits naturally between the before and after text.
+
+Style:
+- Continue in the same language as the surrounding note, including Chinese, English, or mixed text.
+- Match the existing tone, vocabulary, tense, person, and level of formality.
+- Preserve Markdown style: headings, lists, tables, blockquotes, links, [[wikilinks]], #tags, YAML frontmatter, math, and code indentation.
+- Continue the current structure instead of starting a new unrelated section.
+
+Length:
+- Prefer the smallest useful completion: a phrase, the rest of the sentence, one list item, one table cell/row, or 1-3 short sentences.
+- Stop at a natural boundary. Do not continue into a new topic.
+
+Quality:
+- If the next text is obvious, complete it directly.
+- If the context is ambiguous or insufficient, Return an empty string.
+- Never include placeholders, alternatives, or meta-commentary.`,
 	excludedFolders: "",
 	excludedTags: "",
 	usageStats: {
@@ -162,7 +175,7 @@ const I18N = {
 		noticePrefix: "Tabsidian",
 		enableThinking: "Enable Thinking",
 		enableThinkingDesc: "Enable thinking/reasoning mode for supported models (e.g. o1/o3/o4-mini for OpenAI, Claude with extended thinking, deepseek-r1/qwen3 for Ollama)",
-		enableThinkingUnsupportedDesc: "Thinking mode is currently implemented only for OpenAI, Anthropic, and Ollama providers",
+		enableThinkingUnsupportedDesc: "Thinking mode is currently disabled for all providers",
 		thinkingBudget: "Thinking Budget (tokens)",
 		thinkingBudgetDesc: "Maximum tokens allocated for the model's internal reasoning (Anthropic only, 1024-16384)",
 		debugMode: "Debug Mode",
@@ -232,7 +245,7 @@ const I18N = {
 		noticePrefix: "Tabsidian",
 		enableThinking: "启用思考模式",
 		enableThinkingDesc: "为支持的模型启用思考/推理模式（如 OpenAI 的 o1/o3/o4-mini，Claude 的扩展思考，Ollama 的 deepseek-r1/qwen3）",
-		enableThinkingUnsupportedDesc: "当前仅对 OpenAI、Anthropic、Ollama 提供商实现了思考模式",
+		enableThinkingUnsupportedDesc: "当前已对所有提供商关闭思考模式",
 		thinkingBudget: "思考预算（Token 数）",
 		thinkingBudgetDesc: "模型内部推理的最大 Token 数（仅 Anthropic，1024-16384）",
 		debugMode: "调试模式",
@@ -262,7 +275,14 @@ function getStrings(language: SettingsLanguage) {
 
 export function normalizeAcceptSuggestionKey(value: string): string {
 	const normalized = value.trim();
-	return normalized.length > 0 ? normalized : DEFAULT_SETTINGS.acceptSuggestionKey;
+	if (normalized.length === 0) return DEFAULT_SETTINGS.acceptSuggestionKey;
+
+	// Migrate legacy single-letter bindings (old isImplicitShift behavior)
+	if (normalized.length === 1 && /[A-Z]/.test(normalized)) {
+		return `Shift-${normalized}`;
+	}
+
+	return normalized;
 }
 
 export function keyEventToKeybinding(event: KeyboardEvent): string | null {
@@ -272,7 +292,7 @@ export function keyEventToKeybinding(event: KeyboardEvent): string | null {
 	const modifiers: string[] = [];
 	if (event.ctrlKey) modifiers.push("Ctrl");
 	if (event.altKey) modifiers.push("Alt");
-	if (event.shiftKey && !isImplicitShift(baseKey)) modifiers.push("Shift");
+	if (event.shiftKey) modifiers.push("Shift");
 	if (event.metaKey) modifiers.push("Meta");
 
 	return [...modifiers, baseKey].join("-");
@@ -305,10 +325,6 @@ function normalizeKeyName(key: string): string | null {
 	}
 
 	return key.length > 0 ? key : null;
-}
-
-function isImplicitShift(baseKey: string): boolean {
-	return baseKey.length === 1 && /[A-Z]/.test(baseKey);
 }
 
 export class TabsidianSettingTab extends PluginSettingTab {

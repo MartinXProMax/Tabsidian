@@ -18,7 +18,7 @@ export class OpenAIProvider implements CompletionProvider {
 	async complete(request: CompletionRequest): Promise<CompletionResponse> {
 		const url = `${this.config.baseUrl.replace(/\/+$/, "")}/chat/completions`;
 
-		const thinking = this.config.enableThinking;
+		const thinking = false;
 
 		// Thinking models (o1/o3/o4-mini) use "developer" role instead of "system"
 		const systemRole = thinking ? "developer" : "system";
@@ -72,12 +72,13 @@ export class OpenAIProvider implements CompletionProvider {
 		}
 
 		if (response.status >= 400) {
-			throw new Error(`API returned ${response.status}: ${JSON.stringify(response.json)}`);
+			throw new Error(`API returned ${response.status}: ${response.text || JSON.stringify(response.json)}`);
 		}
 
-		const data = response.json;
-		const text = data.choices?.[0]?.message?.content ?? "";
-		const tokensUsed = data.usage?.total_tokens ?? 0;
+		const data = response.json as { choices?: Array<{ message?: { content?: unknown } }>; usage?: { total_tokens?: number } } | null;
+		const content = data?.choices?.[0]?.message?.content;
+		const text = typeof content === "string" ? content : "";
+		const tokensUsed = data?.usage?.total_tokens ?? 0;
 
 		return { text, tokensUsed };
 	}

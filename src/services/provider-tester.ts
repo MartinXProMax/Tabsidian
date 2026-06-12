@@ -44,7 +44,7 @@ export async function testProviderConnection(provider: CompletionProvider | null
 			}),
 		]);
 
-		const preview = response.text.trim();
+		const preview = response.text.trim().slice(0, 120);
 		return {
 			ok: true,
 			message: preview.length > 0

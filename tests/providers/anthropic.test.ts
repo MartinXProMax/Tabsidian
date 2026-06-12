@@ -110,6 +110,44 @@ describe("AnthropicProvider", () => {
 			expect(entry!.requestBody).not.toContain("sk-anthropic-secret-12345678");
 		});
 
+		it("should force thinking mode off even when requested", async () => {
+			provider = new AnthropicProvider({
+				apiKey: "sk-ant-test",
+				model: "claude-sonnet-4-6-20250514",
+				systemPrompt: "You are a helpful assistant.",
+				enableThinking: true,
+				thinkingBudget: 1024,
+			});
+
+			fetchMock.mockResolvedValue(new Response(JSON.stringify({
+				content: [
+					{ type: "thinking", thinking: "reasoning" },
+					{ type: "text", text: "anthropic completion" },
+				],
+				usage: { input_tokens: 10, output_tokens: 15 },
+			}), {
+				status: 200,
+				headers: { "Content-Type": "application/json" },
+			}));
+
+			const result = await provider.complete({
+				prefix: "",
+				suffix: "",
+				prompt: "Shared prompt body",
+				language: "markdown",
+				maxTokens: 100,
+				signal: new AbortController().signal,
+			});
+
+			expect(result.text).toBe("anthropic completion");
+
+			const requestInit = fetchMock.mock.calls[0]?.[1];
+			const body = JSON.parse(String(requestInit?.body));
+			expect(body.max_tokens).toBe(100);
+			expect(body.thinking).toBeUndefined();
+			expect(body.temperature).toBeUndefined();
+		});
+
 		it("should throw on HTTP 4xx/5xx", async () => {
 			fetchMock.mockResolvedValue(new Response(JSON.stringify({
 				error: { message: "Unauthorized" },

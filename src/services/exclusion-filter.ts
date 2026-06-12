@@ -5,17 +5,17 @@ export class ExclusionFilter {
 	constructor(excludedFolders: string, excludedTags: string) {
 		this.folders = excludedFolders
 			.split("\n")
-			.map((f) => f.trim().replace(/\/+$/, ""))
+			.map((f) => f.trim().replace(/^\/+/, "").replace(/\/+$/, "").toLowerCase())
 			.filter((f) => f.length > 0);
 
 		this.tags = excludedTags
 			.split(/\s+/)
-			.map((t) => t.trim())
+			.map((t) => t.trim().replace(/^#/, "").toLowerCase())
 			.filter((t) => t.length > 0);
 	}
 
 	isExcluded(filePath: string, fileTags: string[]): boolean {
-		const normalizedPath = filePath.replace(/\\/g, "/");
+		const normalizedPath = filePath.replace(/\\/g, "/").toLowerCase();
 
 		for (const folder of this.folders) {
 			if (normalizedPath.startsWith(folder + "/") || normalizedPath === folder) {
@@ -23,8 +23,9 @@ export class ExclusionFilter {
 			}
 		}
 
+		const normalizedFileTags = fileTags.map((t) => t.replace(/^#/, "").toLowerCase());
 		for (const tag of this.tags) {
-			if (fileTags.includes(tag)) {
+			if (normalizedFileTags.includes(tag)) {
 				return true;
 			}
 		}

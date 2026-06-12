@@ -18,7 +18,7 @@ export class AnthropicProvider implements CompletionProvider {
 	constructor(private readonly config: AnthropicProviderConfig) {}
 
 	async complete(request: CompletionRequest): Promise<CompletionResponse> {
-		const thinking = this.config.enableThinking;
+		const thinking = false;
 
 		const body: Record<string, unknown> = {
 			model: this.config.model,
@@ -72,24 +72,23 @@ export class AnthropicProvider implements CompletionProvider {
 		}
 
 		if (response.status >= 400) {
-			throw new Error(`API returned ${response.status}: ${JSON.stringify(response.json)}`);
+			throw new Error(`API returned ${response.status}: ${response.text || JSON.stringify(response.json)}`);
 		}
 
-		const data = response.json;
+		const data = response.json as { content?: Array<{ type: string; text?: string }>; usage?: { input_tokens?: number; output_tokens?: number } } | null;
 
-		// When thinking is enabled, response contains both "thinking" and "text" blocks.
-		// Extract only the "text" blocks.
+		// Extract text blocks from response (robust to unexpected content order)
 		let text: string;
-		if (thinking && Array.isArray(data.content)) {
+		if (Array.isArray(data?.content)) {
 			text = data.content
-				.filter((block: { type: string }) => block.type === "text")
-				.map((block: { text: string }) => block.text)
+				.filter((block) => block.type === "text" && typeof block.text === "string")
+				.map((block) => block.text as string)
 				.join("");
 		} else {
-			text = data.content?.[0]?.text ?? "";
+			text = "";
 		}
 
-		const tokensUsed = (data.usage?.input_tokens ?? 0) + (data.usage?.output_tokens ?? 0);
+		const tokensUsed = (data?.usage?.input_tokens ?? 0) + (data?.usage?.output_tokens ?? 0);
 
 		return { text, tokensUsed };
 	}

@@ -18,6 +18,24 @@ export interface TriggerConfig {
 	onAccepted: () => void;
 }
 
+export function clearStaleCompletion(
+	view: Pick<EditorView, "dispatch">,
+	expectedCursorPos: number,
+	currentCursorPos: number,
+): boolean {
+	if (currentCursorPos === expectedCursorPos) return false;
+
+	view.dispatch({ effects: clearCompletion.of(undefined) });
+	return true;
+}
+
+export function recordCompletedProviderRequest(
+	getUsageTracker: () => Pick<UsageTracker, "recordRequest">,
+	tokensUsed: number,
+): void {
+	getUsageTracker().recordRequest(tokensUsed);
+}
+
 export function createTriggerPlugin(config: TriggerConfig) {
 	return ViewPlugin.fromClass(
 		class {
@@ -25,6 +43,7 @@ export function createTriggerPlugin(config: TriggerConfig) {
 			private abortController: AbortController | null = null;
 			private consecutiveFailures = 0;
 			private backoffUntil = 0;
+			private generation = 0;
 
 			update(update: ViewUpdate): void {
 				// Check for acceptance events and detect partial accepts
@@ -67,11 +86,13 @@ export function createTriggerPlugin(config: TriggerConfig) {
 				if (this.abortController) {
 					this.abortController.abort();
 					this.abortController = null;
+					this.generation++;
 				}
 			}
 
 			private async triggerCompletion(view: EditorView): Promise<void> {
 				if (Date.now() < this.backoffUntil) return;
+				const myGeneration = ++this.generation;
 
 				const filePath = config.getFilePath();
 				if (!filePath) return;
@@ -110,8 +131,10 @@ export function createTriggerPlugin(config: TriggerConfig) {
 						return;
 					}
 
+					if (myGeneration !== this.generation) return;
+
 					const currentPos = view.state.selection.main.head;
-					if (currentPos !== cursorPos) return;
+					if (clearStaleCompletion(view, cursorPos, currentPos)) return;
 
 					const trimmedText = postProcessCompletion({
 						prefix: context.prefix,
@@ -132,8 +155,8 @@ export function createTriggerPlugin(config: TriggerConfig) {
 							originalFrom: cursorPos,
 						}),
 					});
+					recordCompletedProviderRequest(config.getUsageTracker, response.tokensUsed);
 
-					config.getUsageTracker().recordRequest(response.tokensUsed);
 					this.consecutiveFailures = 0;
 				} catch (e) {
 					if ((e as Error).name === "AbortError") return;

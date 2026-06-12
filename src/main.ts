@@ -28,9 +28,11 @@ export default class TabsidianPlugin extends Plugin {
 	settings: TabsidianSettings = DEFAULT_SETTINGS;
 	private contextBuilder = new ContextBuilder();
 	private editorExtensions: Extension[] = [];
+	private usageTracker: UsageTracker | null = null;
 
 	async onload(): Promise<void> {
 		await this.loadSettings();
+		this.usageTracker = new UsageTracker(this.settings.usageStats, () => this.saveSettings());
 
 		const currentProvider = normalizeProviderType(this.settings.provider);
 		const currentCfg = this.settings.providerConfigs[currentProvider];
@@ -48,8 +50,7 @@ export default class TabsidianPlugin extends Plugin {
 			contextBuilder: this.contextBuilder,
 			getExclusionFilter: () =>
 				new ExclusionFilter(this.settings.excludedFolders, this.settings.excludedTags),
-			getUsageTracker: () =>
-				new UsageTracker(this.settings.usageStats, () => this.saveSettings()),
+			getUsageTracker: () => this.usageTracker!,
 			getFilePath: () => {
 				const view = this.app.workspace.getActiveViewOfType(MarkdownView);
 				return view?.file?.path ?? null;
@@ -61,8 +62,7 @@ export default class TabsidianPlugin extends Plugin {
 				return cache?.tags?.map((t) => t.tag) ?? [];
 			},
 			onAccepted: () => {
-				const tracker = new UsageTracker(this.settings.usageStats, () => this.saveSettings());
-				tracker.recordAcceptance();
+				this.usageTracker?.recordAcceptance();
 			},
 		};
 
@@ -74,6 +74,10 @@ export default class TabsidianPlugin extends Plugin {
 		];
 		this.registerEditorExtension(this.editorExtensions);
 		this.registerAcceptSuggestionCapture();
+	}
+
+	async onunload(): Promise<void> {
+		await this.usageTracker?.flush();
 	}
 
 	private createProvider(): CompletionProvider | null {
@@ -153,6 +157,7 @@ export default class TabsidianPlugin extends Plugin {
 		const mergedConfigs = structuredClone(DEFAULT_PROVIDER_CONFIGS);
 		if (loaded?.providerConfigs) {
 			for (const key of Object.keys(loaded.providerConfigs)) {
+				if (!(key in mergedConfigs)) continue;
 				mergedConfigs[key as keyof typeof mergedConfigs] = Object.assign(
 					{},
 					mergedConfigs[key as keyof typeof mergedConfigs],
@@ -165,7 +170,7 @@ export default class TabsidianPlugin extends Plugin {
 
 		// Migrate legacy flat apiKey/model/apiBaseUrl to the current provider's config
 		if (!loaded?.providerConfigs && loaded) {
-			const p = (loaded.provider as keyof typeof mergedConfigs) || "openai";
+			const p = this.settings.provider;
 			if (loaded.apiKey) this.settings.providerConfigs[p].apiKey = loaded.apiKey;
 			if (loaded.model) this.settings.providerConfigs[p].model = loaded.model;
 			if (loaded.apiBaseUrl) this.settings.providerConfigs[p].baseUrl = loaded.apiBaseUrl;
@@ -180,12 +185,14 @@ export default class TabsidianPlugin extends Plugin {
 		this.settings.acceptSuggestionKey = normalizeAcceptSuggestionKey(
 			loaded?.acceptSuggestionKey ?? DEFAULT_SETTINGS.acceptSuggestionKey,
 		);
+		this.settings.enableThinking = false;
 	}
 
 	async saveSettings(): Promise<void> {
 		this.settings.acceptSuggestionKey = normalizeAcceptSuggestionKey(
 			this.settings.acceptSuggestionKey,
 		);
+		this.settings.enableThinking = false;
 		await this.saveData(this.settings);
 	}
 

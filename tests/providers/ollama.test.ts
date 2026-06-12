@@ -11,7 +11,7 @@ describe("OllamaProvider", () => {
 		debugLog.clear();
 	});
 
-	it("should send native Ollama chat requests with thinking enabled", async () => {
+	it("should force thinking mode off even when requested", async () => {
 		const provider = new OllamaProvider({
 			model: "qwen3.5:latest",
 			baseUrl: "http://localhost:11434",
@@ -51,12 +51,12 @@ describe("OllamaProvider", () => {
 			signal: controller.signal,
 		}));
 		const body = JSON.parse(String(requestInit?.body));
-		expect(body.think).toBe(true);
+		expect(body.think).toBe(false);
 		expect(body.options).toMatchObject({
 			temperature: 0.3,
 			num_predict: 64,
 		});
-		expect(body.messages[1].content).toContain("/think");
+		expect(body.messages[1].content).toContain("/no_think");
 		expect(body.messages[1].content).toContain("Shared prompt body");
 	});
 

@@ -35,7 +35,7 @@ export const completionStateField = StateField.define<CompletionState>({
 			if (effect.is(clearCompletion)) {
 				return { status: "idle", completion: null };
 			}
-			if (effect.is(acceptPartial)) {
+			if (effect.is(acceptPartial) && state.status === "showing") {
 				return {
 					status: "showing",
 					completion: {

@@ -110,6 +110,40 @@ describe("OpenAIProvider", () => {
 			expect(entry!.requestBody).not.toContain("sk-secret-token-12345678");
 		});
 
+		it("should force thinking mode off even when requested", async () => {
+			provider = new OpenAIProvider({
+				apiKey: "sk-test",
+				model: "o4-mini",
+				baseUrl: "https://api.openai.com/v1",
+				systemPrompt: "You are a helpful assistant.",
+				enableThinking: true,
+			});
+
+			fetchMock.mockResolvedValue(new Response(JSON.stringify({
+				choices: [{ message: { content: "completion text" } }],
+				usage: { total_tokens: 42 },
+			}), {
+				status: 200,
+				headers: { "Content-Type": "application/json" },
+			}));
+
+			await provider.complete({
+				prefix: "",
+				suffix: "",
+				prompt: "Shared prompt body",
+				language: "markdown",
+				maxTokens: 100,
+				signal: new AbortController().signal,
+			});
+
+			const requestInit = fetchMock.mock.calls[0]?.[1];
+			const body = JSON.parse(String(requestInit?.body));
+			expect(body.messages[0].role).toBe("system");
+			expect(body.max_tokens).toBe(100);
+			expect(body.temperature).toBe(0.3);
+			expect(body.max_completion_tokens).toBeUndefined();
+		});
+
 		it("should throw on API error", async () => {
 			provider = new OpenAIProvider({
 				apiKey: "sk-test",

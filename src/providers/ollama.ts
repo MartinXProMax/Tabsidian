@@ -36,7 +36,8 @@ export class OllamaProvider implements CompletionProvider {
 		const baseUrl = this.config.baseUrl || "http://localhost:11434";
 		const url = `${baseUrl.replace(/\/+$/, "")}/api/chat`;
 
-		const userMessage = buildUserMessage(this.config.model, this.config.enableThinking, request.prompt);
+		const enableThinking = false;
+		const userMessage = buildUserMessage(this.config.model, enableThinking, request.prompt);
 
 		const bodyStr = JSON.stringify({
 				model: this.config.model,
@@ -45,7 +46,7 @@ export class OllamaProvider implements CompletionProvider {
 					{ role: "user", content: userMessage },
 				],
 				stream: false,
-				think: this.config.enableThinking,
+				think: enableThinking,
 				options: {
 					temperature: 0.3,
 					num_predict: request.maxTokens,
@@ -81,18 +82,19 @@ export class OllamaProvider implements CompletionProvider {
 		}
 
 		if (response.status >= 400) {
-			throw new Error(`API returned ${response.status}: ${JSON.stringify(response.json)}`);
+			throw new Error(`API returned ${response.status}: ${response.text || JSON.stringify(response.json)}`);
 		}
 
-		const data = response.json;
-		let text: string = data.message?.content ?? "";
+		const data = response.json as { message?: { content?: unknown }; prompt_eval_count?: number; eval_count?: number } | null;
+		const rawContent = data?.message?.content;
+		let text: string = typeof rawContent === "string" ? rawContent : "";
 
 		// Some Ollama models still inline reasoning into content even when `think` is supported.
-		if (this.config.enableThinking || isQwenThinkingModel(this.config.model)) {
+		if (enableThinking || isQwenThinkingModel(this.config.model)) {
 			text = stripThinkingTags(text);
 		}
 
-		const tokensUsed = (data.prompt_eval_count ?? 0) + (data.eval_count ?? 0);
+		const tokensUsed = (data?.prompt_eval_count ?? 0) + (data?.eval_count ?? 0);
 
 		return { text, tokensUsed };
 	}
